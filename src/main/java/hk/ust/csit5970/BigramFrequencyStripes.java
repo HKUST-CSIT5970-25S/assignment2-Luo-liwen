@@ -27,6 +27,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.Logger;
+import java.util.Iterator; 
 
 /**
  * Compute the bigram count using the "stripes" approach
@@ -54,6 +55,20 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			if (words.length > 1){
+				KEY.set( words[0]);
+				for (int i = 1; i < words.length; i++) {
+					String w = words[i];
+					// Skip empty words
+					if (w.length() == 0) {
+						continue;
+					}
+					STRIPE.increment(w);
+					context.write(KEY, STRIPE);
+					KEY.set(w);
+					STRIPE.clear();
+				}
+			}
 		}
 	}
 
@@ -75,6 +90,29 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			Iterator<HashMapStringIntWritable> iter = stripes.iterator();
+			String first_w = key.toString();
+			while (iter.hasNext()) {
+				SUM_STRIPES.plus(iter.next());
+			}
+			// calculate the total frequency
+			int total = 0;
+			for(int count:SUM_STRIPES.values()){
+				total += count;
+			}
+			// Output the total frequency of the first word
+			FREQ.set((float)  total);
+			BIGRAM.set(first_w, "");
+			context.write(BIGRAM,FREQ);
+			// output the frequency of each bigram
+			for (Map.Entry<String, Integer> entry : SUM_STRIPES.entrySet()) {
+				String second_w = entry.getKey();
+				int count = entry.getValue();
+				FREQ.set((float) count / total);
+				BIGRAM.set(first_w, second_w);
+				context.write(BIGRAM, FREQ);
+			}
+			SUM_STRIPES.clear();
 		}
 	}
 
@@ -94,6 +132,16 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			Iterator<HashMapStringIntWritable> iter = stripes.iterator();
+
+			while (iter.hasNext()) {
+				for ( String second_w : iter.next().keySet() ) {
+					SUM_STRIPES.increment(second_w);
+				}
+			}
+			context.write(key, SUM_STRIPES);
+			SUM_STRIPES.clear();
+
 		}
 	}
 

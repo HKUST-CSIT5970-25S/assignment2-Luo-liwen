@@ -33,6 +33,9 @@ public class CORStripes extends Configured implements Tool {
 	 */
 	private static class CORMapper1 extends
 			Mapper<LongWritable, Text, Text, IntWritable> {
+		private static final IntWritable ONE = new IntWritable(1);
+		private static final Text WORD = new Text();
+
 		@Override
 		public void map(LongWritable key, Text value, Context context)
 				throws IOException, InterruptedException {
@@ -43,6 +46,16 @@ public class CORStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			while (doc_tokenizer.hasMoreTokens()) {
+				String word = doc_tokenizer.nextToken();
+				int count = word_set.containsKey(word) ? word_set.get(word) : 0;
+				word_set.put(word,  count + 1);
+       		}
+			for (Map.Entry<String, Integer> entry : word_set.entrySet()) {
+				WORD.set(entry.getKey());
+				ONE.set(entry.getValue());
+				context.write(WORD, ONE);
+			}
 		}
 	}
 
@@ -51,11 +64,19 @@ public class CORStripes extends Configured implements Tool {
 	 */
 	private static class CORReducer1 extends
 			Reducer<Text, IntWritable, Text, IntWritable> {
+		private static final IntWritable SUM = new IntWritable();
+
 		@Override
 		public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			int sum = 0;
+			for (IntWritable value : values) {
+				sum += value.get();
+			}
+			SUM.set(sum);
+			context.write(key, SUM);
 		}
 	}
 
@@ -75,6 +96,17 @@ public class CORStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			List<String> words = new ArrayList<String>(sorted_word_set);
+			for (int i=0;i<words.size();i++){
+				MapWritable stripe = new MapWritable();
+				String word_1 = words.get(i);
+				for(int j=i+1;j<words.size();j++){
+					String word_2 = words.get(j);
+					// due to sorted_word_set, word_2 will always be greater than word_1 and only appear once
+					stripe.put(new Text(word_2), new IntWritable(1));
+				}
+				context.write(new Text(word_1), stripe);
+			}
 		}
 	}
 
@@ -89,6 +121,24 @@ public class CORStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			MapWritable SUM_STRIPES = new MapWritable();
+			for (MapWritable stripe : values) {
+				for (Map.Entry<Writable, Writable> entry : stripe.entrySet()) {
+					Writable word = entry.getKey();
+					IntWritable count = (IntWritable) entry.getValue();
+					// If the word already exists in SUM_STRIPES, increment its count
+					if (SUM_STRIPES.containsKey(word)) {
+						IntWritable existing_count = (IntWritable) SUM_STRIPES.get(word);
+						existing_count.set(existing_count.get() + count.get());
+					} else {
+						// If the word does not exist, add it to SUM_STRIPES
+						SUM_STRIPES.put(word, new IntWritable(count.get()));
+					}
+				}
+			}
+
+			
+			context.write(key, SUM_STRIPES);
 		}
 	}
 
@@ -142,6 +192,27 @@ public class CORStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
+			double freq1=word_total_map.get(key.toString());
+			TreeMap<PairOfStrings, Double> sortedResults = new TreeMap<PairOfStrings, Double>();// to store the correlation results and order them
+
+			// Iterate through the stripes
+    		for (MapWritable stripe : values) {
+				for (Map.Entry<Writable, Writable> entry : stripe.entrySet()) {
+					String word_2 = ((Text) entry.getKey()).toString();
+					double freq2 = word_total_map.get(word_2);
+
+					// calculate the correlation
+					IntWritable count = (IntWritable) entry.getValue();
+					double cor = (double) count.get() / (freq1 * freq2);
+
+					PairOfStrings pair = new PairOfStrings(key.toString(), word_2);
+					sortedResults.put(pair, cor);
+				}
+			}
+
+			for (Map.Entry<PairOfStrings, Double> entry : sortedResults.entrySet()) {
+				context.write(entry.getKey(), new DoubleWritable(entry.getValue()));
+			}
 		}
 	}
 
